@@ -156,13 +156,13 @@ static inline rte from_rte6(rte6 r)
 static inline rte from_rte4s(rte4s r)
 {
   rte route = { .src.w = r.src, .dst.w = r.dst, .dst.z = htobe32(0xFFFF), .src.z = htobe32(0xFFFF),
-		.src_plen = r.src_plen, .dst_plen = r.dst_plen };
+		.src_plen = r.src_plen + 96, .dst_plen = r.dst_plen + 96 };
   return route;
 }
 
 static inline rte from_rte4(rte4 r)
 {
-  rte route = { .dst.w = r.dst, .dst.z = htobe32(0xFFFF), .dst_plen = r.dst_plen };
+  rte route = { .dst.w = r.dst, .dst.z = htobe32(0xFFFF), .dst_plen = r.dst_plen + 96 };
   return route;
 }
 
@@ -195,14 +195,14 @@ static inline rte6 rte2_rte6(rte r)
 
 static inline rte4s rte2_rte4s(rte r)
 {
-  rte4s route = { .src = r.src.w, .dst = r.dst.w, .src_plen = r.src_plen, .dst_plen = r.dst_plen };
+  rte4s route = { .src = r.src.w, .dst = r.dst.w, .src_plen = r.src_plen - 96, .dst_plen = r.dst_plen - 96 };
   route.hh = 0;
   return route;
 }
 
 static inline rte4 rte2_rte4(rte r)
 {
-  rte4 route = { .dst = r.dst.w, .dst_plen = r.dst_plen };
+  rte4 route = { .dst = r.dst.w, .dst_plen = r.dst_plen - 96 };
   route.hh = 0;
   return route;
 }
@@ -319,7 +319,7 @@ linklocal(const addr6 address)
 int
 v4mapped(const addr6 address)
 {
-  return address.d[0] == v4prefix.d[0] && address.z == v4prefix.z;
+  return address.d[0] == 0 && address.z == v4prefix.z; // doing it this way to make sure I got endianess right
 }
 
 /*
@@ -391,10 +391,12 @@ void route_type (rte_idx r)
 int main(char * argv, int argc) {
   /* Test vectors for ipv6 checking */
   rte_idx r[4];
-  rte v4 = { .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1} ;
-  rte v4s = { .src.b[13] = 127, .src.z = htobe32(0xffff), .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1 };
-  rte v6 = { .dst.b[1] = 0xfe, .dst.b[13] = 127 };
-  rte v6s = { .src.b[13] = 127, .src.x = 0x0fafa, .dst.b[12] = 127 };
+
+  rte v4 = { .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8+96 } ;
+  rte v4s = { .src.b[13] = 127, .src.z = htobe32(0xffff), .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1,
+	      .dst_plen = 8 + 96, .src_plen = 22 + 96 };
+  rte v6 = { .dst.b[0] = 0xfc, .dst.b[13] = 127, .dst_plen = 7 };
+  rte v6s = { .src.b[13] = 127, .src.x = 0xfafa, .dst.b[12] = 127, .dst_plen = 64, .src_plen = 64 };
 
   printf("pool %d\n", r[3] = insaddr(v4));
   printf("pool %d\n", r[2] = insaddr(v4s));
