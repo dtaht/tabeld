@@ -28,7 +28,6 @@
 /* On the way in we have a C11 anonymous union */
 
 typedef u128 addr6;
-typedef u32 addr4;
 typedef u32 hash;
 
 typedef struct nexthop nexthop;
@@ -68,15 +67,15 @@ typedef struct rte6s rte6s;
 typedef struct kernel_route kernel_route;
 
 struct rte4 {
-  u32 dst;
+  addr4 dst;
   u8  dst_plen;
   nh  via;
   hash hh;
 };
 
 struct rte4s {
-  u32 src;
-  u32 dst;
+  addr4 src;
+  addr4 dst;
   u8 src_plen;
   u8 dst_plen;
   nh via;
@@ -105,6 +104,11 @@ struct kernel_route {
   u16 proto; // 8?
   u32 table;
   u32 expires;
+  int metric;
+};
+
+struct metric {
+  int base;
 };
 
 struct proto_route {
@@ -112,9 +116,6 @@ struct proto_route {
   nh via;
 };
 
-struct metric {
-  int base;
-};
 
 /* On the way out we have 4 memory pools that we hopefully never see, because they are abstracted out */
 
@@ -143,6 +144,9 @@ rte6  poolv6[TEST_ROUTES];
 nexthop6 poolnh6[TEST_ROUTES];
 nexthop poolnh[TEST_ROUTES];
 
+const addr6 v4prefix_mask = { .b = 
+			 {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0 } };
+
 const addr6 v4local = { .b = 
 			 {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 127, 0, 0, 1 } };
 
@@ -157,6 +161,15 @@ linklocal(const addr6 address)
   return address.d[0] == llprefix.d[0];
 }
 
+/*
+I wrote this once correctly elsewhere, fixme
+int
+v4mapped_sse(const addr6 address)
+{ addr6 m = address & v4_prefix_mask;
+  return is_not_zero(xor(m,v4prefix));
+}
+*/
+  
 int
 v4mapped(const addr6 address)
 {
@@ -178,14 +191,14 @@ static inline rte from_rte6(rte6 r)
 
 static inline rte from_rte4s(rte4s r)
 {
-  rte route = { .src.w = r.src, .dst.w = r.dst, .dst.z = htobe32(0xFFFF), .src.z = htobe32(0xFFFF),
+  rte route = { .src.w = r.src.v, .dst.w = r.dst.v, .dst.z = htobe32(0xFFFF), .src.z = htobe32(0xFFFF),
 		.src_plen = r.src_plen + 96, .dst_plen = r.dst_plen + 96 };
   return route;
 }
 
 static inline rte from_rte4(rte4 r)
 {
-  rte route = { .dst.w = r.dst, .dst.z = htobe32(0xFFFF), .dst_plen = r.dst_plen + 96 };
+  rte route = { .dst.w = r.dst.v, .dst.z = htobe32(0xFFFF), .dst_plen = r.dst_plen + 96 };
   return route;
 }
 
@@ -218,21 +231,21 @@ static inline rte6 rte2_rte6(rte r)
 
 static inline rte4s rte2_rte4s(rte r)
 {
-  rte4s route = { .src = r.src.w, .dst = r.dst.w, .src_plen = r.src_plen - 96, .dst_plen = r.dst_plen - 96 };
+  rte4s route = { .src.v = r.src.w, .dst.v = r.dst.w, .src_plen = r.src_plen - 96, .dst_plen = r.dst_plen - 96 };
   route.hh = 0;
   return route;
 }
 
 static inline rte4 rte2_rte4(rte r)
 {
-  rte4 route = { .dst = r.dst.w, .dst_plen = r.dst_plen - 96 };
+  rte4 route = { .dst.v = r.dst.w, .dst_plen = r.dst_plen - 96 };
   route.hh = 0;
   return route;
 }
 
 static inline bool check_rte_ss(rte r)
 {
-  if (r.src.d[0] | r.src.d[1] != 0) return true; // actually I don't know how to encode this yet
+  if ((r.src.d[0] | r.src.d[1]) != 0) return true;
   return false;
 }
 
@@ -243,13 +256,28 @@ static inline bool check_rte_v6(rte r)
   if(r.dst.z == htobe32(0xFFFF) && r.dst.d[0] == 0L) return false;
   return true;
 }
+
+const rte4 martians4[] = {
+  { .dst.b = { 127, 0, 0, 0 }, .dst_plen = 8 },
+  { .dst.b = { 255, 255, 255, 255 }, .dst_plen = 0 },
+  { .dst.b = { 224, 0, 0, 0 }, .dst_plen = 4 },
+  //  { .dst.b = { 240, 0, 0, 0 }, .dst_plen = 4 },
+  { .dst.b = { 0, 0, 0, 0 }, .dst_plen = 8 }
+};
+
+// FIXME, what if we get 225.0.0.0/3 ? or the 0.0.0.0/0 default?
   
 bool martian_check4(addr4 a, u8 plen)
 {
+  for(int i = 0; i < 5; i++) {
+    if ( martians4[i].dst.v == a.v && plen >= martians4[i].dst_plen) return true;
+  }
+  return false;
 }
 
 bool martian_check6(addr6 a, u8 plen)
 {
+  return false;
 }
 
 // FIXME -1 should be a martian
@@ -522,11 +550,11 @@ void route_typeless (rte_idx r)
   rte r1 = getroute(r);
   printf("Route %d %s to %s is a %s %s route\n", r >> RTE_TAG_SIZE,
 	 format_prefix(r1.src, r1.src_plen), format_prefix(r1.dst, r1.dst_plen),
-	 (r & IS_V4 != 0) ? "v4" : "v6", (r & IS_SS != 0) ? "SADR" : "not SADR");	
+	 ((r & IS_V4) != 0) ? "v4" : "v6", ((r & IS_SS) != 0) ? "SADR" : "not SADR");	
 }
 
 
-int main(char * argv, int argc) {
+int main(int argc, char **argv) {
   /* Test vectors for ipv6 checking */
   rte_idx r[8];
 

@@ -41,8 +41,8 @@ struct vfloat {
 
 
 typedef u32 v4i __attribute__((vector_size(16)));
-
 typedef struct u128 u128;
+
 
 struct u128 {
   union {
@@ -55,6 +55,18 @@ struct u128 {
       u32 y;
       u32 z;
       u32 w;
+    };
+  };
+};
+
+typedef struct addr4 addr4;
+
+struct addr4 {
+  union {
+    u32       v;
+    u8        b[4];
+    struct {
+      u32 x;
     };
   };
 };
