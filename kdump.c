@@ -140,7 +140,25 @@ rte6  poolv6[TEST_ROUTES];
 
 nexthop6 poolnh6[TEST_ROUTES];
 nexthop poolnh[TEST_ROUTES];
-			
+
+const addr6 v4prefix = { .b = 
+			 {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 0 } };
+
+const addr6 llprefix = { .b = {0xFE, 0x80} };
+
+int
+linklocal(const addr6 address)
+{
+  return address.d[0] == llprefix.d[0];
+}
+
+int
+v4mapped(const addr6 address)
+{
+  return address.d[0] == 0 && address.z == v4prefix.z; // doing it this way to make sure I got endianess right
+}
+
+
 static inline rte from_rte6s(rte6s r)
 {
   rte route = { .src = r.src, .dst = r.dst, .src_plen = r.src_plen, .dst_plen = r.dst_plen };
@@ -215,8 +233,10 @@ inline bool check_rte_ss(rte r)
 
 inline bool check_rte_v6(rte r)
 {
-  if(r.dst.z == htobe32(0xFFFF) && r.dst.d[0] == 0L) return false;
-  return true;
+  return !v4mapped(r.dst);
+     
+  //  if(r.dst.z == htobe32(0xFFFF) && r.dst.d[0] == 0L) return false;
+  // return true;
 }
   
 bool martian_check4(addr4 a, u8 plen)
@@ -229,7 +249,13 @@ bool martian_check6(addr6 a, u8 plen)
 
 static int rte_classify(rte route)
 {
-  return (check_rte_v6(route) | (!check_rte_ss(route) << 1));
+  if(check_rte_v6(route)) {
+    if(check_rte_ss(route)) return 1;
+    else return 0;
+  } else {
+    if(check_rte_ss(route)) return 3;
+    else return 2;
+  }
 }
 
 #define insaddr(X) _Generic((X),		\
@@ -264,6 +290,8 @@ rte_idx insaddr6s(rte6s route) {
   return ctr++ << RTE_TAG_SIZE;
 }
 
+/* This was a misguided attempt at trying generics
+
 rte_idx insaddr_generic(rte route)
 {
   rte_idx r = rte_classify(route);
@@ -272,6 +300,20 @@ rte_idx insaddr_generic(rte route)
   case 1: r |= insaddr(rte2_rte6s(route)); break;
   case 2: r |= insaddr(rte2_rte4(route)); break;
   case 3: r |= insaddr(rte2_rte4s(route)); break;
+  }
+  return r;
+}
+*/
+
+rte_idx insaddr_generic(rte route)
+{
+  rte_idx r = rte_classify(route);
+  switch(r) {
+  case 0: r |= insaddr6(rte2_rte6(route)); break;
+  case 1: r |= insaddr6s(rte2_rte6s(route)); break;
+  case 2: r |= insaddr4(rte2_rte4(route)); break;
+  case 3: r |= insaddr4s(rte2_rte4s(route)); break;
+  default: exit(-1);
   }
   return r;
 }
@@ -304,23 +346,6 @@ mon_table();
 
 
 // callbacks();
-
-const addr6 v4prefix = { .b = 
-			 {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 0 } };
-
-const addr6 llprefix = { .b = {0xFE, 0x80} };
-
-int
-linklocal(const addr6 address)
-{
-  return address.d[0] == llprefix.d[0];
-}
-
-int
-v4mapped(const addr6 address)
-{
-  return address.d[0] == 0 && address.z == v4prefix.z; // doing it this way to make sure I got endianess right
-}
 
 /*
 int
