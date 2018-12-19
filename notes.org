@@ -1,0 +1,10 @@
+
+* TODO icc doesn't do bswap in the compiler preprocessor pass
+  Need a macro for this
+* TODO cleanup
+* TODO find my old SSE/neon code
+* TODO don't get distracted by the damn SSE code
+* TODO find a good test bench
+* TODO decide on a hash (spooky? blake?)
+* TODO decide on a hash algorithm
+
