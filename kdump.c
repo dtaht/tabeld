@@ -118,6 +118,7 @@ struct metric {
 
 /* On the way out we have 4 memory pools that we hopefully never see, because they are abstracted out */
 
+#define IS_V6 0
 #define IS_V4 1
 #define IS_SS 2
 #define IS_MARTIAN 4 // link local and martian I think I can filter out on input always
@@ -126,6 +127,7 @@ struct metric {
 #define IS_FILTERED 32
 #define IS_ENABLED 64 // if it wasn't for having space, I'd not do this
 
+#define IS_V4SS (IS_V4 | IS_SS)
 #define RTE_TAG_SIZE 7
 
 // Cheap and dirty memory-pool-ish implementation
@@ -189,10 +191,10 @@ static rte getroute(rte_idx r)
   u32 idx = r >> RTE_TAG_SIZE;
   rte route;
   switch(r & 3) {
-  case 0: route = from_rte6(poolv6[idx]); break;
-  case 1: route = from_rte6s(poolv6s[idx]); break;
-  case 2: route = from_rte4(poolv4[idx]); break;
-  case 3: route = from_rte4s(poolv4s[idx]); break;
+  case IS_V6: route = from_rte6(poolv6[idx]); break;
+  case IS_V4: route = from_rte4(poolv4[idx]); break;
+  case IS_SS: route = from_rte6s(poolv6s[idx]); break;
+  case IS_V4SS: route = from_rte4s(poolv4s[idx]); break;
   }
   return route;
 }
@@ -225,18 +227,18 @@ static inline rte4 rte2_rte4(rte r)
   return route;
 }
 
-inline bool check_rte_ss(rte r)
+static inline bool check_rte_ss(rte r)
 {
   if (r.src.d[0] | r.src.d[1] != 0) return true; // actually I don't know how to encode this yet
   return false;
 }
 
-inline bool check_rte_v6(rte r)
+static inline bool check_rte_v6(rte r)
 {
-  return !v4mapped(r.dst);
+  //  return !v4mapped(r.dst);
      
-  //  if(r.dst.z == htobe32(0xFFFF) && r.dst.d[0] == 0L) return false;
-  // return true;
+  if(r.dst.z == htobe32(0xFFFF) && r.dst.d[0] == 0L) return false;
+  return true;
 }
   
 bool martian_check4(addr4 a, u8 plen)
@@ -247,19 +249,21 @@ bool martian_check6(addr6 a, u8 plen)
 {
 }
 
+// FIXME -1 should be a martian
+// -2
+
 static int rte_classify(rte route)
 {
-  return 1;
-  //  return !check_rte_v6(route) | ((!check_rte_ss(route)) << 1);
+  // return 1;
+  //   return check_rte_v6(route) | ((check_rte_ss(route)) << 1);
 
-  /*  if(check_rte_v6(route)) {
-    if(check_rte_ss(route)) return 1;
+  if(check_rte_v6(route)) {
+    if(check_rte_ss(route)) return IS_SS;
     else return 0;
   } else {
-    if(check_rte_ss(route)) return 3;
-    else return 2;
+    if(check_rte_ss(route)) return IS_V4SS;
+    else return IS_V4;
   }
-    */
 }
 
 #define insaddr(X) _Generic((X),		\
@@ -313,10 +317,10 @@ rte_idx insaddr_generic(rte route)
 {
   rte_idx r = rte_classify(route);
   switch(r & 3) {
-  case 0: r |= insaddr6(rte2_rte6(route)); break;
-  case 1: r |= insaddr6s(rte2_rte6s(route)); break;
-  case 2: r |= insaddr4(rte2_rte4(route)); break;
-  case 3: r |= insaddr4s(rte2_rte4s(route)); break;
+  case IS_V6: r = r | insaddr6(rte2_rte6(route)); break;
+  case IS_V4: r = r | insaddr4(rte2_rte4(route)); break;
+  case IS_SS: r = r | insaddr6s(rte2_rte6s(route)); break;
+  case IS_V4SS: r = r | insaddr4s(rte2_rte4s(route)); break;
   }
   return r;
 }
@@ -371,6 +375,26 @@ martian_prefix(const unsigned char *prefix, int plen)
 */
 
 const char *
+format_address6(addr6 address)
+{
+    static char buf[4][INET6_ADDRSTRLEN];
+    static int i = 0;
+    i = (i + 1) % 4;
+    inet_ntop(AF_INET6, &address.b, buf[i], INET6_ADDRSTRLEN);
+    return buf[i];
+}
+
+const char *
+format_address4(addr4 address)
+{
+    static char buf[4][INET6_ADDRSTRLEN];
+    static int i = 0;
+    i = (i + 1) % 4;
+    inet_ntop(AF_INET, &address, buf[i], INET6_ADDRSTRLEN);
+    return buf[i];
+}
+
+const char *
 format_address(addr6 address)
 {
     static char buf[4][INET6_ADDRSTRLEN];
@@ -380,6 +404,32 @@ format_address(addr6 address)
         inet_ntop(AF_INET, &address.z, buf[i], INET6_ADDRSTRLEN);
     else
         inet_ntop(AF_INET6, &address.b, buf[i], INET6_ADDRSTRLEN);
+    return buf[i];
+}
+
+const char *
+format_prefix4(addr4 address, u8 plen)
+{
+    static char buf[4][INET6_ADDRSTRLEN + 4];
+    static int i = 0;
+    int n;
+    i = (i + 1) % 4;
+    inet_ntop(AF_INET, &address, buf[i], INET6_ADDRSTRLEN);
+    n = strlen(buf[i]);
+    snprintf(buf[i] + n, INET6_ADDRSTRLEN + 4 - n, "/%d", plen);
+    return buf[i];
+}
+
+const char *
+format_prefix6(addr6 address, u8 plen)
+{
+    static char buf[4][INET6_ADDRSTRLEN + 4];
+    static int i = 0;
+    int n;
+    i = (i + 1) % 4;
+    inet_ntop(AF_INET6, &address.b, buf[i], INET6_ADDRSTRLEN);
+    n = strlen(buf[i]);
+    snprintf(buf[i] + n, INET6_ADDRSTRLEN + 4 - n, "/%d", plen);
     return buf[i];
 }
 
@@ -402,6 +452,33 @@ format_prefix(addr6 address, u8 plen)
     return buf[i];
 }
 
+// Backward compatability
+
+int
+v4mapped_str(const unsigned char *address)
+{
+    return memcmp(address, &v4prefix.b[0], 12) == 0;
+}
+
+const char *
+format_prefix_str(const unsigned char *prefix, unsigned char plen)
+{
+    static char buf[4][INET6_ADDRSTRLEN + 4];
+    static int i = 0;
+    int n;
+    i = (i + 1) % 4;
+    if(plen >= 96 && v4mapped_str(prefix)) {
+        inet_ntop(AF_INET, prefix + 12, buf[i], INET6_ADDRSTRLEN);
+        n = strlen(buf[i]);
+        snprintf(buf[i] + n, INET6_ADDRSTRLEN + 4 - n, "/%d", plen - 96);
+    } else {
+        inet_ntop(AF_INET6, prefix, buf[i], INET6_ADDRSTRLEN);
+        n = strlen(buf[i]);
+        snprintf(buf[i] + n, INET6_ADDRSTRLEN + 4 - n, "/%d", plen);
+    }
+    return buf[i];
+}
+
 /* Struct return ABI is different */
 
 #include <stdio.h>
@@ -410,22 +487,66 @@ format_prefix(addr6 address, u8 plen)
 
 void route_type (rte_idx r)
 {
+  int i = r >> RTE_TAG_SIZE;
+  switch(r & 3) {
+  case IS_V6: {
+    rte6 r1 = poolv6[i];
+    printf("Route %d %s is an IPv6 route\n", i,
+	   format_prefix6(r1.dst, r1.dst_plen)); }
+    break;
+  case IS_SS: {
+    rte6s r1 = poolv6s[i];
+    printf("Route %d from %s %s is an IPv6 SADR route\n", i,
+	   format_prefix6(r1.src, r1.src_plen),
+	   format_prefix6(r1.dst, r1.dst_plen)); }
+    break;
+  case IS_V4: {
+    rte4 r1 = poolv4[i];
+    printf("Route %d %s is an IPv4 route\n", i,
+	   format_prefix4(r1.dst, r1.dst_plen)); } break;
+  case IS_V4SS: {
+    rte4s r1 = poolv4s[i];
+    printf("Route %d from %s %s is an IPv4 SADR route\n", i,
+	   format_prefix4(r1.src, r1.src_plen),
+	   format_prefix4(r1.dst, r1.dst_plen)); }
+    break;
+  }
+		   
+}
+
+void route_typeless (rte_idx r)
+{
   rte r1 = getroute(r);
   printf("Route %d %s to %s is a %s %s route\n", r >> RTE_TAG_SIZE,
 	 format_prefix(r1.src, r1.src_plen), format_prefix(r1.dst, r1.dst_plen),
-	 r & IS_V4 ? "v4" : "v6", r & IS_SS ? "SADR" : "not SADR");	
+	 (r & IS_V4 != 0) ? "v4" : "v6", (r & IS_SS != 0) ? "SADR" : "not SADR");	
 }
+
 
 int main(char * argv, int argc) {
   /* Test vectors for ipv6 checking */
   rte_idx r[4];
 
-  rte v4 = { .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8+96 } ;
-  rte v4s = { .src.b[13] = 127, .src.z = htobe32(0xffff), .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1,
-	      .dst_plen = 8 + 96, .src_plen = 22 + 96 };
-  rte v6 = { .dst.b[0] = 0xfc, .dst.b[13] = 127, .dst_plen = 7 };
-  rte v6s = { .src.b[0] = 0xfd, .src.y = htobe32(0xfafa), .dst.x = htobe32(0xfd999999), .dst_plen = 64, .src_plen = 64 };
+  
+  rte v4 = { .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8 + 96 } ;
+  rte v4s = { .src.b[12] = 127, .src.b[15] = 1,
+	      .src.z = htobe32(0xffff), .dst.z = htobe32(0xffff), // .z is in the wrong place
+	      .dst.b[12] = 127, .dst.b[15] = 1,
+	      .dst_plen = 22 + 96, .src_plen = 22 + 96 };
+  rte v6 = { .dst.b[0] = 0xfc, .dst.b[15] = 1, .dst_plen = 7 };
+  rte v6s = { .src.b[0] = 0xfd, .src.x = htobe32(0xfd080000), .src.y = htobe32(0xfafa),
+	      .dst.x = htobe32(0xfd999999),
+	      .dst_plen = 64, .src_plen = 64 };
 
+
+  printf("V4mapped looks like: %s\n", format_prefix_str(&v4prefix.b[0], 96 ));
+  printf("LL looks like: %s\n", format_prefix_str(&llprefix.b[0], 64));
+  printf("Vs mine\n");
+  printf("V4 looks like: %s\n", format_prefix_str(&v4.dst.b[0], v4.dst_plen));
+  printf("V6 looks like: %s\n", format_prefix_str(&v6.dst.b[0], v6.dst_plen));
+  printf("V4SS looks like: from %s %s\n", format_prefix_str(&v4s.src.b[0], v4s.src_plen), format_prefix_str(&v4s.dst.b[0], v4s.dst_plen));
+  printf("V6SS looks like: from %s %s\n", format_prefix_str(&v6s.src.b[0], v6s.src_plen), format_prefix_str(&v6s.dst.b[0], v6s.dst_plen));
+	 
   printf("pool %d\n", r[3] = insaddr(v4));
   printf("pool %d\n", r[2] = insaddr(v4s));
   printf("pool %d\n", r[1] = insaddr(v6));
