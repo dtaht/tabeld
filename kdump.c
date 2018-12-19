@@ -143,6 +143,9 @@ rte6  poolv6[TEST_ROUTES];
 nexthop6 poolnh6[TEST_ROUTES];
 nexthop poolnh[TEST_ROUTES];
 
+const addr6 v4local = { .b = 
+			 {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 127, 0, 0, 1 } };
+
 const addr6 v4prefix = { .b = 
 			 {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 0 } };
 
@@ -525,28 +528,64 @@ void route_typeless (rte_idx r)
 
 int main(char * argv, int argc) {
   /* Test vectors for ipv6 checking */
-  rte_idx r[4];
+  rte_idx r[8];
 
-  
-  rte v4 = { .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8 + 96 } ;
-  rte v4s = { .src.b[12] = 127, .src.b[15] = 1,
-	      .src.z = htobe32(0xffff), .dst.z = htobe32(0xffff), // .z is in the wrong place
-	      .dst.b[12] = 127, .dst.b[15] = 1,
-	      .dst_plen = 22 + 96, .src_plen = 22 + 96 };
+
+  /* 
+
+  .z here just didn't work.
+
+  rte v4 = { .dst.w = htobe32(0x0000ffff), .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8 + 96 } ;
+  rte v4s = { .src.z = htobe32(0xffff), .dst.z = htobe32(0xffff),
+	      .src.b[12] = 127, .src.b[15] = 1,
+	      .dst.b[12] = 127, .dst.b[15] = 2,
+	      .dst_plen = 22 + 96, .src_plen = 8 + 96 };
   rte v6 = { .dst.b[0] = 0xfc, .dst.b[15] = 1, .dst_plen = 7 };
-  rte v6s = { .src.b[0] = 0xfd, .src.x = htobe32(0xfd080000), .src.y = htobe32(0xfafa),
+  rte v6s = { .src.b[0] = 0xfd, .src.z = htobe32(0xfd080000), .src.y = htobe32(0xfafa),
 	      .dst.x = htobe32(0xfd999999),
 	      .dst_plen = 64, .src_plen = 64 };
 
+  */
 
+/* 
+  rte v4 = { .dst.f[2] = 0x0000ffff, .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8 + 96 } ;
+
+  rte v4s = { .src.f[1] = htobe32(0xffff0000), .dst.f[1] = htobe32(0x0000ffff),
+	      .src.b[12] = 127, .src.b[15] = 1,
+	      .dst.b[12] = 127, .dst.b[15] = 2,
+	      .dst_plen = 22 + 96, .src_plen = 8 + 96 };
+*/
+  rte v6 = { .dst.b[0] = 0xfc, .dst.b[15] = 1, .dst_plen = 7 };
+  rte v6s = { .src.b[0] = 0xfd, .src.f[0] = htobe32(0xfd080000), .src.f[2] = htobe32(0xfafa),
+	      .dst.f[0] = htobe32(0xfd999999),
+	      .dst_plen = 64, .src_plen = 64 };
+
+  const rte v4 = {
+    .dst_plen = 128,
+    .dst.b = 
+    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 255, 255,255, 254 } };
+
+  const rte v4s = {
+    .src_plen = 96 + 4, .dst_plen = 96 + 32,
+    .src.b = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 240, 0, 0, 0 },
+    .dst.b = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 255, 255,255, 254 }
+  };
+
+
+  printf("V4local looks like: %s\n", format_prefix_str(&v4local.b[0], 96 ));
   printf("V4mapped looks like: %s\n", format_prefix_str(&v4prefix.b[0], 96 ));
   printf("LL looks like: %s\n", format_prefix_str(&llprefix.b[0], 64));
+
   printf("Vs mine\n");
   printf("V4 looks like: %s\n", format_prefix_str(&v4.dst.b[0], v4.dst_plen));
   printf("V6 looks like: %s\n", format_prefix_str(&v6.dst.b[0], v6.dst_plen));
   printf("V4SS looks like: from %s %s\n", format_prefix_str(&v4s.src.b[0], v4s.src_plen), format_prefix_str(&v4s.dst.b[0], v4s.dst_plen));
   printf("V6SS looks like: from %s %s\n", format_prefix_str(&v6s.src.b[0], v6s.src_plen), format_prefix_str(&v6s.dst.b[0], v6s.dst_plen));
-	 
+
+/*  r[6] = insaddr(v4prefix);
+  r[5] = insaddr(llprefix.src);
+  r[4] = insaddr(v4local.src);
+*/
   printf("pool %d\n", r[3] = insaddr(v4));
   printf("pool %d\n", r[2] = insaddr(v4s));
   printf("pool %d\n", r[1] = insaddr(v6));
