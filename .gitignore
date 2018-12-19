@@ -1,0 +1,12 @@
+*.o
+kdump
+version.h
+cscope.*
+gmon.out
+core
+TAGS
+tags
+*.rej
+*.orig
+*~
+\#*#
