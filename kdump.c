@@ -209,14 +209,14 @@ static inline rte4 rte2_rte4(rte r)
 
 inline bool check_rte_ss(rte r)
 {
-  if (r.src.d[0] | r.src.d[1] != 0) return 0; // actually I don't know how to encode this yet
-  return 1;
+  if (r.src.d[0] | r.src.d[1] != 0) return true; // actually I don't know how to encode this yet
+  return false;
 }
 
-inline int check_rte_v4(rte r)
+inline bool check_rte_v6(rte r)
 {
-  if(r.dst.z == htobe32(0xFFFF) && r.dst.d == 0L) return 1;
-  return 0;
+  if(r.dst.z == htobe32(0xFFFF) && r.dst.d[0] == 0L) return false;
+  return true;
 }
   
 bool martian_check4(addr4 a, u8 plen)
@@ -229,7 +229,7 @@ bool martian_check6(addr6 a, u8 plen)
 
 static int rte_classify(rte route)
 {
-  return (check_rte_v4(route) << 1) | !check_rte_ss(route);
+  return (check_rte_v6(route) | (!check_rte_ss(route) << 1));
 }
 
 #define insaddr(X) _Generic((X),		\
@@ -396,7 +396,7 @@ int main(char * argv, int argc) {
   rte v4s = { .src.b[13] = 127, .src.z = htobe32(0xffff), .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1,
 	      .dst_plen = 8 + 96, .src_plen = 22 + 96 };
   rte v6 = { .dst.b[0] = 0xfc, .dst.b[13] = 127, .dst_plen = 7 };
-  rte v6s = { .src.b[13] = 127, .src.x = 0xfafa, .dst.b[12] = 127, .dst_plen = 64, .src_plen = 64 };
+  rte v6s = { .src.b[0] = 0xfd, .src.y = htobe32(0xfafa), .dst.x = htobe32(0xfd999999), .dst_plen = 64, .src_plen = 64 };
 
   printf("pool %d\n", r[3] = insaddr(v4));
   printf("pool %d\n", r[2] = insaddr(v4s));
