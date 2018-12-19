@@ -7,8 +7,23 @@
 
 /* "Every piece of knowledge must have a single, unambiguous, authoritative representation within a system" */
 
-#include "ttypes.h"
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#include <sys/time.h>
+#include <time.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <limits.h>
+#include <assert.h>
 #include <endian.h>
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#include "ttypes.h"
 
 /* On the way in we have a C11 anonymous union */
 
@@ -266,6 +281,9 @@ rte_idx insaddr_generic(rte route)
 /* epoll */
 
 /*
+
+Note: the logger thread *only* will be fiddling with output. 
+
 format_route();
 format_addr()
 format_prefix();
@@ -283,8 +301,78 @@ mon_iface();
 mon_table();
 
 */
+
+
 // callbacks();
 
+const addr6 v4prefix = { .b = 
+			 {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0, 0 } };
+
+const addr6 llprefix = { .b = {0xFE, 0x80} };
+
+int
+linklocal(const addr6 address)
+{
+  return address.d[0] == llprefix.d[0];
+}
+
+int
+v4mapped(const addr6 address)
+{
+  return address.d[0] == v4prefix.d[0] && address.z == v4prefix.z;
+}
+
+/*
+int
+martian_prefix(const unsigned char *prefix, int plen)
+{
+    return
+        (plen >= 8 && prefix[0] == 0xFF) ||
+        (plen >= 10 && prefix[0] == 0xFE && (prefix[1] & 0xC0) == 0x80) ||
+        (plen >= 128 && memcmp(prefix, zeroes, 15) == 0 &&
+         (prefix[15] == 0 || prefix[15] == 1)) ||
+        (plen >= 96 && v4mapped(prefix) &&
+         ((plen >= 104 && (prefix[12] == 127 || prefix[12] == 0)) ||
+          (plen >= 100 &&
+	    ((prefix[12] & 0xF0) == 0xF0 && 
+	     (prefix[12] == 0xFF && prefix[13] == 0xFF && prefix[14] == 0xFF &&
+		 prefix[15] == 0xFF)
+		 && ((prefix[12] & 0xE0) == 0xE0)))));
+}
+
+*/
+
+const char *
+format_address(addr6 address)
+{
+    static char buf[4][INET6_ADDRSTRLEN];
+    static int i = 0;
+    i = (i + 1) % 4;
+    if(v4mapped(address))
+        inet_ntop(AF_INET, &address.z, buf[i], INET6_ADDRSTRLEN);
+    else
+        inet_ntop(AF_INET6, &address.b, buf[i], INET6_ADDRSTRLEN);
+    return buf[i];
+}
+
+const char *
+format_prefix(addr6 address, u8 plen)
+{
+    static char buf[4][INET6_ADDRSTRLEN + 4];
+    static int i = 0;
+    int n;
+    i = (i + 1) % 4;
+    if(plen >= 96 && v4mapped(address)) {
+        inet_ntop(AF_INET, &address.z, buf[i], INET6_ADDRSTRLEN);
+        n = strlen(buf[i]);
+        snprintf(buf[i] + n, INET6_ADDRSTRLEN + 4 - n, "/%d", plen - 96);
+    } else {
+        inet_ntop(AF_INET6, &address.b, buf[i], INET6_ADDRSTRLEN);
+        n = strlen(buf[i]);
+        snprintf(buf[i] + n, INET6_ADDRSTRLEN + 4 - n, "/%d", plen);
+    }
+    return buf[i];
+}
 
 /* Struct return ABI is different */
 
@@ -294,7 +382,9 @@ mon_table();
 
 void route_type (rte_idx r)
 {
-  printf("Route %d is a %s %s route\n", r >> RTE_TAG_SIZE,
+  rte r1 = getroute(r);
+  printf("Route %d %s to %s is a %s %s route\n", r >> RTE_TAG_SIZE,
+	 format_prefix(r1.src, r1.src_plen), format_prefix(r1.dst, r1.dst_plen),
 	 r & IS_V4 ? "v4" : "v6", r & IS_SS ? "SADR" : "not SADR");	
 }
 
@@ -302,7 +392,7 @@ int main(char * argv, int argc) {
   /* Test vectors for ipv6 checking */
   rte_idx r[4];
   rte v4 = { .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1} ;
-  rte v4s = { .src.b[13] = 127, .src.z = 0xffff, .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1 };
+  rte v4s = { .src.b[13] = 127, .src.z = htobe32(0xffff), .dst.z = htobe32(0xFFFF), .dst.b[12] = 127, .dst.b[15] = 1 };
   rte v6 = { .dst.b[1] = 0xfe, .dst.b[13] = 127 };
   rte v6s = { .src.b[13] = 127, .src.x = 0x0fafa, .dst.b[12] = 127 };
 
