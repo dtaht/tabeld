@@ -188,7 +188,7 @@ static rte getroute(rte_idx r)
 {
   u32 idx = r >> RTE_TAG_SIZE;
   rte route;
-  switch(r & 2) {
+  switch(r & 3) {
   case 0: route = from_rte6(poolv6[idx]); break;
   case 1: route = from_rte6s(poolv6s[idx]); break;
   case 2: route = from_rte4(poolv4[idx]); break;
@@ -249,13 +249,17 @@ bool martian_check6(addr6 a, u8 plen)
 
 static int rte_classify(rte route)
 {
-  if(check_rte_v6(route)) {
+  return 1;
+  //  return !check_rte_v6(route) | ((!check_rte_ss(route)) << 1);
+
+  /*  if(check_rte_v6(route)) {
     if(check_rte_ss(route)) return 1;
     else return 0;
   } else {
     if(check_rte_ss(route)) return 3;
     else return 2;
   }
+    */
 }
 
 #define insaddr(X) _Generic((X),		\
@@ -308,12 +312,11 @@ rte_idx insaddr_generic(rte route)
 rte_idx insaddr_generic(rte route)
 {
   rte_idx r = rte_classify(route);
-  switch(r) {
+  switch(r & 3) {
   case 0: r |= insaddr6(rte2_rte6(route)); break;
   case 1: r |= insaddr6s(rte2_rte6s(route)); break;
   case 2: r |= insaddr4(rte2_rte4(route)); break;
   case 3: r |= insaddr4s(rte2_rte4s(route)); break;
-  default: exit(-1);
   }
   return r;
 }
