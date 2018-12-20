@@ -30,6 +30,9 @@ version.h:
 
 all: kdump
 
+TAGS: $(SRCS) $(HEADERS)
+	etags $(SRCS) $(HEADERS)
+
 install.minimal: kdump
 	-rm -f $(TARGET)$(PREFIX)/bin/kdump
 	mkdir -p $(TARGET)$(PREFIX)/bin
