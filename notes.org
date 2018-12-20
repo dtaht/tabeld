@@ -1,10 +1,42 @@
+* TODO Next Steps
+** Move stuff to test dir and find test harness
+** Roll Memory pool
+** Create threaded logger
 
-* TODO icc doesn't do bswap in the compiler preprocessor pass
-  Need a macro for this
+* TODO Find a macro equivalent of htobe32
+  icc doesn't do bswap in the compiler preprocessor pass
+  either.
 * TODO cleanup
 * TODO find my old SSE/neon code
 * TODO don't get distracted by the damn SSE code
 * TODO find a good test bench
 * TODO decide on a hash (spooky? blake?)
 * TODO decide on a hash algorithm
+* CRAZY CASTING didn't work
+I'm not entirely sure why
+
+  /* 
+
+  .z here just didn't work.
+
+  rte v4 = { .dst.w = htobe32(0x0000ffff), .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8 + 96 } ;
+  rte v4s = { .src.z = htobe32(0xffff), .dst.z = htobe32(0xffff),
+	      .src.b[12] = 127, .src.b[15] = 1,
+	      .dst.b[12] = 127, .dst.b[15] = 2,
+	      .dst_plen = 22 + 96, .src_plen = 8 + 96 };
+  rte v6 = { .dst.b[0] = 0xfc, .dst.b[15] = 1, .dst_plen = 7 };
+  rte v6s = { .src.b[0] = 0xfd, .src.z = htobe32(0xfd080000), .src.y = htobe32(0xfafa),
+	      .dst.x = htobe32(0xfd999999),
+	      .dst_plen = 64, .src_plen = 64 };
+
+  */
+
+/* 
+  rte v4 = { .dst.f[2] = 0x0000ffff, .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8 + 96 } ;
+
+  rte v4s = { .src.f[1] = htobe32(0xffff0000), .dst.f[1] = htobe32(0x0000ffff),
+	      .src.b[12] = 127, .src.b[15] = 1,
+	      .dst.b[12] = 127, .dst.b[15] = 2,
+	      .dst_plen = 22 + 96, .src_plen = 8 + 96 };
+*/
 
