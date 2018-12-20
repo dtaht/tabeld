@@ -23,113 +23,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include "ttypes.h"
-
-/* On the way in we have a C11 anonymous union */
-
-typedef u128 addr6;
-typedef u32 hash;
-
-typedef struct nexthop nexthop;
-typedef struct nexthop6 nexthop6;
-typedef struct rte rte;
-
-struct nexthop {
-  int ifaddr;
-  addr4 dst;
-};
-
-struct nexthop6 {
-  int ifaddr;
-  addr6 dst;
-};
-
-/* Default babeld uses 34 bytes for all routes.
-   We use 12, 16, 20, 36 presently, and that's
-   assuming I keep the hash and nh */
-
-struct rte {
-  addr6 src;
-  addr6 dst;
-  byte src_plen;
-  byte dst_plen;
-};
-
-typedef u32 rte_idx; /* route index table */
-typedef u16 nh; /* nexthop index */
-
-/* So, great, now we need a hash */
-
-typedef struct rte4  rte4;
-typedef struct rte4s rte4s;
-typedef struct rte6  rte6;
-typedef struct rte6s rte6s;
-typedef struct kernel_route kernel_route;
-
-struct rte4 {
-  addr4 dst;
-  u8  dst_plen;
-  nh  via;
-  hash hh;
-};
-
-struct rte4s {
-  addr4 src;
-  addr4 dst;
-  u8 src_plen;
-  u8 dst_plen;
-  nh via;
-  hash hh;
-};
-
-struct rte6 {
-  addr6 dst;
-  u8 dst_plen;
-  nh via;
-  hash hh;
-};
-
-struct rte6s {
-  addr6 src;
-  addr6 dst;
-  u8 src_plen;
-  u8 dst_plen;
-  nh via;
-  hash hh;
-};
-
-struct kernel_route {
-  rte_idx r;
-  nh via;
-  u16 proto; // 8?
-  u32 table;
-  u32 expires;
-  int metric;
-};
-
-struct metric {
-  int base;
-};
-
-struct proto_route {
-  rte_idx r;
-  nh via;
-};
-
-
-/* On the way out we have 4 memory pools that we hopefully never see, because they are abstracted out */
-
-#define IS_V6 0
-#define IS_V4 1
-#define IS_SS 2
-#define IS_MARTIAN 4 // link local and martian I think I can filter out on input always
-#define IS_LL 8
-#define IS_DEFAULT 16
-#define IS_FILTERED 32
-#define IS_ENABLED 64 // if it wasn't for having space, I'd not do this
-
-#define IS_V4SS (IS_V4 | IS_SS)
-#define RTE_TAG_SIZE 7
+#include "structures.h"
 
 // Cheap and dirty memory-pool-ish implementation
 
@@ -305,6 +199,7 @@ static int rte_classify(rte route)
 			    rte6s: insaddr6s	       \
 )(X)
 
+
 rte_idx insaddr4(rte4 route) {
   static int ctr = 0;
   poolv4[ctr] = route;
@@ -356,6 +251,46 @@ rte_idx insaddr_generic(rte route)
   return r;
 }
 
+// Switch to epollish events here
+
+/* 
+int ksockets[] = { RTNLGRP_IPV6_ROUTE, RTNLGRP_IPV4_ROUTE, RTNLGRP_LINK,
+		   RTNLGRP_IPV4_IFADDR, RTNLGRP_IPV6_IFADDR,
+		   RTNLGRP_IPV4_RULE, RTNLGRP_IPV6_IFADDR };
+
+int ksocket[8];
+
+int
+kernel_setup_sockets(int setup)
+{
+    int rc;
+
+    if(setup) {
+      for(int i = 0; i < 7; i++) {
+      rc = netlink_socket(&ksocket[i], rtnlgrp_to_mask(ksockets[i]));
+      if(rc < 0) {
+            perror("netlink_socket(_ROUTE | _LINK | _IFADDR | _RULE)");
+            kernel_socket = -1;
+            return -1;
+        }
+
+        kernel_socket = nl_listen.sock;
+
+        return 1;
+
+    } else {
+
+        close(nl_listen.sock);
+        nl_listen.sock = -1;
+        kernel_socket = -1;
+
+        return 1;
+
+    }
+}
+
+*/
+    
 // extern print_test(void *);
 
 /* epoll */
@@ -464,6 +399,26 @@ format_prefix6(addr6 address, u8 plen)
     return buf[i];
 }
 
+/* FIXME at some point a test of xmm-ness
+
+const char *
+format_prefixes6(addr6 address, u8 plen, addr6 address2, u8 plen2)
+{
+  static char buf[4][2*(INET6_ADDRSTRLEN + 4)];
+  static int i = 0;
+  int n;
+  i = (i + 1) % 4;
+  inet_ntop(AF_INET6, &address.b, buf[i], INET6_ADDRSTRLEN);
+  n = strlen(buf[i]);
+  snprintf(buf[i] + n, INET6_ADDRSTRLEN + 4 - n, "/%d", plen);
+  inet_ntop(AF_INET6, &address2.b, buf[i] + n + 4, INET6_ADDRSTRLEN);
+  n = strlen(buf[i]); // inefficient fixme
+  snprintf(buf[i] + n, INET6_ADDRSTRLEN + 4 - n, "/%d", plen);
+  return buf[i];
+}
+
+*/
+
 const char *
 format_prefix(addr6 address, u8 plen)
 {
@@ -483,7 +438,7 @@ format_prefix(addr6 address, u8 plen)
     return buf[i];
 }
 
-// Backward compatability
+// Backward compatability stuff
 
 int
 v4mapped_str(const unsigned char *address)
@@ -558,33 +513,8 @@ int main(int argc, char **argv) {
   /* Test vectors for ipv6 checking */
   rte_idx r[8];
 
-
-  /* 
-
-  .z here just didn't work.
-
-  rte v4 = { .dst.w = htobe32(0x0000ffff), .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8 + 96 } ;
-  rte v4s = { .src.z = htobe32(0xffff), .dst.z = htobe32(0xffff),
-	      .src.b[12] = 127, .src.b[15] = 1,
-	      .dst.b[12] = 127, .dst.b[15] = 2,
-	      .dst_plen = 22 + 96, .src_plen = 8 + 96 };
   rte v6 = { .dst.b[0] = 0xfc, .dst.b[15] = 1, .dst_plen = 7 };
-  rte v6s = { .src.b[0] = 0xfd, .src.z = htobe32(0xfd080000), .src.y = htobe32(0xfafa),
-	      .dst.x = htobe32(0xfd999999),
-	      .dst_plen = 64, .src_plen = 64 };
-
-  */
-
-/* 
-  rte v4 = { .dst.f[2] = 0x0000ffff, .dst.b[12] = 127, .dst.b[15] = 1, .dst_plen = 8 + 96 } ;
-
-  rte v4s = { .src.f[1] = htobe32(0xffff0000), .dst.f[1] = htobe32(0x0000ffff),
-	      .src.b[12] = 127, .src.b[15] = 1,
-	      .dst.b[12] = 127, .dst.b[15] = 2,
-	      .dst_plen = 22 + 96, .src_plen = 8 + 96 };
-*/
-  rte v6 = { .dst.b[0] = 0xfc, .dst.b[15] = 1, .dst_plen = 7 };
-  rte v6s = { .src.b[0] = 0xfd, .src.f[0] = htobe32(0xfd080000), .src.f[2] = htobe32(0xfafa),
+  rte v6s = { .src.b[0] = 0xfd,
 	      .dst.f[0] = htobe32(0xfd999999),
 	      .dst_plen = 64, .src_plen = 64 };
 
@@ -596,7 +526,7 @@ int main(int argc, char **argv) {
   const rte v4s = {
     .src_plen = 96 + 4, .dst_plen = 96 + 32,
     .src.b = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 240, 0, 0, 0 },
-    .dst.b = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 255, 255,255, 254 }
+    .dst.b = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 255, 255, 255, 254 }
   };
 
 
