@@ -49,12 +49,73 @@ typedef struct {
 
 typedef struct {
 	rte_idx r;
+	rte_tbls best;
+	rte_tbls other;
+	rte_tbls worst;
+	metrics  best_metric;
+	metrics  other_metric;
+	metrics  worst_metric;
+} rtes_better;
+
+typedef struct {
+  union {
+    u64 v;
+    struct {
+	rte_idx r;
+	rte_tbls best;
+    };
+  };
+  union {
+    u64 v2;
+    struct {
+	rte_tbls other;
+	rte_tbls worst;
+    };
+  };
+  metrics  best_metric;
+  metrics  other_metric;
+  metrics  worst_metric;
+} rtes_better3;
+
+typedef struct {
+  union {
+    u128 v;
+    struct {
+	rte_idx r;
+	rte_tbls best;
+	rte_tbls other;
+	rte_tbls worst;
+    };
+  };
+  union {
+    u128 v1;
+    struct {
+      metrics  best_metric;
+      metrics  other_metric;
+    };
+  };
+  metrics  worst_metric;
+} rtes_better2;
+
+typedef struct {
+	rte_idx r;
 	rte_tbls rid;
 	metrics  metric;
 } rtq;
 
 extern rtes *rlookup(rte_idx q);
 extern rtes *rinsert(rtq q);
+extern bool rte_send(rtes r);
+extern bool rte_better2_send(rtes_better2 r);
+bool rte_u128_send(u128 v1, u128 v2, u128 v3) {
+  printf("v1.b1 = %d\n", v1.b[0]);
+  return true;
+}
+
+extern rtes_better2 bad;
+extern u128 bad1;
+extern u128 bad2;
+extern u128 bad3;
 
 void tell() {
   printf("Something changed you should have a hook for\n");
@@ -80,11 +141,14 @@ bool update_rtes(rtq q)
     if (r->rid[i].v == q.rid.v) {
       rc = CMPM(r->metric[i], q.metric);
       if(rc == 1) {
-	/* if it got better compare with prev */
+	// if it got better compare with prev 
 	if(i == 0) {
 	  r->rid[i] = q.rid;
 	  r->metric[i] = q.metric;
+	  rte_send(*r);
+	  rte_better2_send(bad); // this generates xmms
 	  tell();
+	  rte_u128_send(bad1,bad2,bad3); // this does not seem to work
 	  changed = true;
 	} else {
 	    for (int j = 0; j < i; j++) {
@@ -93,7 +157,7 @@ bool update_rtes(rtq q)
 	    }
 	  }
 	break; 
-	/* if it got worse compare with next */
+	// if it got worse compare with next
       } else {
 	if(rc == -1) {
 	  for (int j = i; j < MAX_RTES; j++) {
@@ -119,11 +183,20 @@ bool update_rtes(rtq q)
   return changed;
 }
 
+void metric_print(metrics m) {
+	printf("add_metric %d, metric %d, cost %d, ref_metric %d\n",
+		m.add_metric, m.metric, m.cost, m.ref_metric);
+}
+
 int main(int argc, char **argv)
 {
   metrics e = { .add_metric = 96, .metric = 32, .cost = 0, .ref_metric = 0 };
   metrics w = { .add_metric = 128, .metric = 128, .cost = 0, .ref_metric = 0 };
-  
+  metric_print(e);
+  metric_print(w);
+  rtq r = { .r = 0, .rid.v = 1, .metric = e };
+  update_rtes(r);
+  update_rtes((rtq){ .r = 0, .rid.v = 2, .metric = w });
 }
 
 #endif
