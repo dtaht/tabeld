@@ -9,14 +9,18 @@ CFLAGS = $(CDEBUGFLAGS) $(DEFINES) $(EXTRA_DEFINES)
 
 LDLIBS = 
 
-SRCS = kdump.c
+SRCS = kdump.c rtod.c
 
-OBJS = kdump.o
+OBJS = kdump.o rtod.o
 
 kdump: $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o kdump $(OBJS) $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o kdump kdump.o $(LDLIBS)
+
+rtod: rtod.o
 
 kdump.o: kdump.c version.h
+
+rtod.o: rtod.c version.h
 
 version.h:
 	./generate-version.sh > version.h
